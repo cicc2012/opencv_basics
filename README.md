@@ -280,6 +280,25 @@ tape_centerlines = np.uint8(tape_centerlines)
 
 ## 4. Complete Demo Script: Skeletonization + Line Detection
 
+To make their code bulletproof, students should chain these steps together:
+
+```
+[ Raw Image ]
+      │
+      ▼
+[ HSV Filter ] ──> (Isolates black tape, but it's thick & noisy)
+      │
+      ▼
+[ Morphological Close ] ──> (Fills holes, smooths rough tape edges)
+      │
+      ▼
+[ Skeletonization / Thinning ] ──> (OCR trick: collapses tape to 1-pixel spine)
+      │
+      ▼
+[ Hough Lines / Intersections ] ──> (Now finds EXACT 3 line segments & 2 open endpoints!)
+
+```
+
 Here is a working prototype using the thinning technique:
 
 ```python
