@@ -120,7 +120,7 @@ canvas = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
 
 if lines is not None:
     for line in lines:
-        x1, y1, x2, y2 = line[0]
+        x1, y1, x2, y2 = line.ravel()
         # Draw each detected line segment
         cv2.line(canvas, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
@@ -183,7 +183,7 @@ endpoints = []
 
 if lines is not None:
     for line in lines:
-        x1, y1, x2, y2 = line[0]
+        x1, y1, x2, y2 = line.ravel()
         endpoints.append((x1, y1))
         endpoints.append((x2, y2))
 
@@ -224,7 +224,7 @@ cv2.imshow("Vertex Intersection Analysis", canvas)
 
 ## 3. Techniques to Make Detection Reliable
 
-Here are 4 specific improvements that directly solve tape width and irregular edge issues.
+Here are some specific improvements that directly solve tape width and irregular edge issues.
 
 #### 3.1. Image Skeletonization / Thinning
 
@@ -278,148 +278,8 @@ tape_centerlines = np.uint8(tape_centerlines)
 
 ---
 
-## 4. Complete Demo Script: Skeletonization + Line Detection
 
-To make their code bulletproof, students should chain these steps together:
-
-```
-[ Raw Image ]
-      │
-      ▼
-[ HSV Filter ] ──> (Isolates black tape, but it's thick & noisy)
-      │
-      ▼
-[ Morphological Close ] ──> (Fills holes, smooths rough tape edges)
-      │
-      ▼
-[ Skeletonization / Thinning ] ──> (OCR trick: collapses tape to 1-pixel spine)
-      │
-      ▼
-[ Hough Lines / Intersections ] ──> (Now finds EXACT 3 line segments & 2 open endpoints!)
-
-```
-
-Here is a working prototype using the thinning technique:
-
-```python
-import cv2
-import numpy as np
-
-# Assuming 'mask' is your binary HSV thresholded frame
-# 1. Morphological smoothing to clean up rough tape edges
-kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-clean_mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-
-# 2. Thinning / Skeletonization (OCR Concept)
-# If ximgproc is unavailable, use morphological erosion
-try:
-    skeleton = cv2.ximgproc.thinning(clean_mask)
-except AttributeError:
-    # Fallback erosion if contrib package isn't installed
-    skeleton = cv2.erode(clean_mask, kernel, iterations=2)
-
-# 3. Detect clean single-pixel lines
-lines = cv2.HoughLinesP(skeleton, rho=1, theta=np.pi/180, threshold=25, minLineLength=20, maxLineGap=15)
-
-canvas = cv2.cvtColor(skeleton, cv2.COLOR_GRAY2BGR)
-
-if lines is not None:
-    for line in lines:
-        x1, y1, x2, y2 = line.ravel()
-        cv2.line(canvas, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
-
-cv2.imshow("Original Mask", mask)
-cv2.imshow("Skeletonized (OCR-style)", skeleton)
-cv2.imshow("Clean Centerline Detection", canvas)
-
-```
-
----
-
-## 5. Camera Calibration (Checkerboard Method)
-
-Camera lenses introduce optical **barrel distortion**, making straight lines on the floor look curved. Calibration calculates a **Camera Matrix** and **Distortion Coefficients** to undistort images before running vision algorithms.
-
-```
-       +-------------------------------------+
-       |          CHECKERBOARD BOARD         |
-       |  +---+---+---+---+---+---+---+---+  |
-       |  |   |   |   |   |   |   |   |   |  |
-       |  +---+---+---+---+---+---+---+---+  |
-       |  |   |   |   |   |   |   |   |   |  |
-       |  +---+---+---+---+---+---+---+---+  |
-       |  |   |   |   |   |   |   |   |   |  |
-       |  +---+---+---+---+---+---+---+---+  |
-       |  |   |   |   |   |   |   |   |   |  |
-       |  +---+---+---+---+---+---+---+---+  |
-       |  |   |   |   |   |   |   |   |   |  |
-       |  +---+---+---+---+---+---+---+---+  |
-       |  |   |   |   |   |   |   |   |   |  |
-       |  +---+---+---+---+---+---+---+---+  |
-       |         8 x 6 Inner Corners         |
-       +-------------------------------------+
-
-```
-
-### Preparing a Checkerboard Target
-
-1. **Print Pattern:** Download a standard $9 \times 7$ square checkerboard pattern (which contains $8 \times 6$ **inner grid corners**).
-2. **Mount Rigidly:** Glue the paper flat onto a rigid piece of cardboard or wood. *Any warps or bends in the board will ruin the calibration.*
-3. **Measure Grid:** Use a precision ruler to measure the exact square size in millimeters (e.g., $25\text{ mm}$).
-
----
-
-### Step-by-Step Calibration Script
-
-Capture 15–20 images of the checkerboard from different angles and distances before running this script:
-
-```python
-import cv2
-import numpy as np
-import glob
-
-# Define grid size (number of INSIDE corners, not total squares)
-CHECKERBOARD = (8, 6) 
-SQUARE_SIZE_MM = 25.0  # Measured width of one square
-
-# Prepare 3D object points (0,0,0), (25,0,0), (50,0,0)...
-objp = np.zeros((CHECKERBOARD[0] * CHECKERBOARD[1], 3), np.float32)
-objp[:, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2) * SQUARE_SIZE_MM
-
-objpoints = [] # 3d points in real world space
-imgpoints = [] # 2d points in image plane
-
-images = glob.glob('calibration_images/*.jpg')
-
-for fname in images:
-    img = cv2.imread(fname)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # Find the chessboard corners
-    ret, corners = cv2.findChessboardCorners(gray, CHECKERBOARD, None)
-
-    if ret:
-        objpoints.append(objp)
-        # Refine corner locations for high precision
-        corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1),
-                                    criteria=(cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
-        imgpoints.append(corners2)
-
-# Run OpenCV Camera Calibration
-ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
-
-print("--- CALIBRATION COMPLETE ---")
-print("Camera Matrix (Intrinsics):\n", mtx)
-print("Distortion Coefficients:\n", dist)
-
-# Save calibration results to a file for use in your parking project
-np.savez("camera_calib.npz", matrix=mtx, dist=dist)
-
-```
-
----
-
-## 6. First-Time OpenCV Warm-Up & Best Practices
+## 4. First-Time OpenCV Warm-Up & Best Practices
 
 Before jumping into full robot integration, review these fundamental tips:
 
@@ -481,5 +341,87 @@ while True:
     prev_time = curr_time
     
     print(f"Vision Processing Speed: {fps:.1f} FPS")
+
+```
+
+
+### D. Camera Calibration (Checkerboard Method)
+
+Camera lenses introduce optical **barrel distortion**, making straight lines on the floor look curved. Calibration calculates a **Camera Matrix** and **Distortion Coefficients** to undistort images before running vision algorithms.
+
+```
+       +-------------------------------------+
+       |          CHECKERBOARD BOARD         |
+       |  +---+---+---+---+---+---+---+---+  |
+       |  |   |   |   |   |   |   |   |   |  |
+       |  +---+---+---+---+---+---+---+---+  |
+       |  |   |   |   |   |   |   |   |   |  |
+       |  +---+---+---+---+---+---+---+---+  |
+       |  |   |   |   |   |   |   |   |   |  |
+       |  +---+---+---+---+---+---+---+---+  |
+       |  |   |   |   |   |   |   |   |   |  |
+       |  +---+---+---+---+---+---+---+---+  |
+       |  |   |   |   |   |   |   |   |   |  |
+       |  +---+---+---+---+---+---+---+---+  |
+       |  |   |   |   |   |   |   |   |   |  |
+       |  +---+---+---+---+---+---+---+---+  |
+       |         8 x 6 Inner Corners         |
+       +-------------------------------------+
+
+```
+
+#### Preparing a Checkerboard Target
+
+1. **Print Pattern:** Download a standard $9 \times 7$ square checkerboard pattern (which contains $8 \times 6$ **inner grid corners**).
+2. **Mount Rigidly:** Glue the paper flat onto a rigid piece of cardboard or wood. *Any warps or bends in the board will ruin the calibration.*
+3. **Measure Grid:** Use a precision ruler to measure the exact square size in millimeters (e.g., $25\text{ mm}$).
+
+---
+
+#### Step-by-Step Calibration Script
+
+Capture 15–20 images of the checkerboard from different angles and distances before running this script:
+
+```python
+import cv2
+import numpy as np
+import glob
+
+# Define grid size (number of INSIDE corners, not total squares)
+CHECKERBOARD = (8, 6) 
+SQUARE_SIZE_MM = 25.0  # Measured width of one square
+
+# Prepare 3D object points (0,0,0), (25,0,0), (50,0,0)...
+objp = np.zeros((CHECKERBOARD[0] * CHECKERBOARD[1], 3), np.float32)
+objp[:, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2) * SQUARE_SIZE_MM
+
+objpoints = [] # 3d points in real world space
+imgpoints = [] # 2d points in image plane
+
+images = glob.glob('calibration_images/*.jpg')
+
+for fname in images:
+    img = cv2.imread(fname)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Find the chessboard corners
+    ret, corners = cv2.findChessboardCorners(gray, CHECKERBOARD, None)
+
+    if ret:
+        objpoints.append(objp)
+        # Refine corner locations for high precision
+        corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1),
+                                    criteria=(cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
+        imgpoints.append(corners2)
+
+# Run OpenCV Camera Calibration
+ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+
+print("--- CALIBRATION COMPLETE ---")
+print("Camera Matrix (Intrinsics):\n", mtx)
+print("Distortion Coefficients:\n", dist)
+
+# Save calibration results to a file for use in your parking project
+np.savez("camera_calib.npz", matrix=mtx, dist=dist)
 
 ```
